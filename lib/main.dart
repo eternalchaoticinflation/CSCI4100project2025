@@ -2,8 +2,10 @@
 // Requirements: show a counter, increment with a button, display a snackbar.
 
 import 'package:flutter/material.dart';
+import 'db/app_database.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const BookshareApp());
 }
 //  Main app widget for the Campus Bookshare App
@@ -151,6 +153,31 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   //  Controller to capture the user's text input in the search field
   final TextEditingController _searchController = TextEditingController();
+  List<Book> _books = [];
+  @override
+  void initState() {
+    super.initState();
+    _loadBooksFromDb(); // later we'll use _books; for now this just warms up the DB
+  }
+
+  Future<void> _loadBooksFromDb() async {
+    // you'll need: import 'db/app_database.dart';
+    final rows = await AppDatabase.instance.getAllBooks();
+
+    setState(() {
+      _books = rows.map((row) {
+        return Book(
+          id: row['id'].toString(),
+          isbn: row['isbn'] as String,
+          title: row['title'] as String,
+          author: row['author'] as String,
+          ownerName: 'Uploader #${row['uploader_id']}',
+          condition: row['condition'] as String,
+          notes: row['notes'] as String?,
+        );
+      }).toList();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -398,28 +425,44 @@ class _SignInPageState extends State<SignInPage> {
   // Handles the form submission and sign-in logic.
   // Validates user input, creates a new User object, and navigates home.
   // ────────────────────────────────────────────────────────────────────
-  void _signIn() {
-    //  Check if the form fields pass all validation rules
+  void _signIn() async {
     if (_formKey.currentState!.validate()) {
-      //  Create a new user using data from the form fields
-      currentUser = User(
-        name: _nameController.text,
-        email: _emailController.text,
-        photoUrl: _photoUrl,
-        bio: _bioController.text.isEmpty ? null : _bioController.text,
-      );
-      //  Display success feedback to the user
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Account created successfully!')),
-      );
+      final db = AppDatabase.instance;
 
-      //  Navigate back and refresh home page
-      //  ensures the user cannot go "back" to the sign-in screen
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const HomePage()),
-            (route) => false,
-      );
+      // naive: use email itself as password or add a password field to form
+      const dummyPassword = 'test123'; // better: add a real password TextFormField
+
+      try {
+        final id = await db.insertUser(
+          User(
+            name: _nameController.text,
+            email: _emailController.text,
+            photoUrl: _photoUrl,
+            bio: _bioController.text.isEmpty ? null : _bioController.text,
+          ),
+          dummyPassword,
+        );
+
+        // load user back (with credits etc.)
+        currentUser = await db.getUserByEmailAndPassword(
+          _emailController.text,
+          dummyPassword,
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Account created & saved to SQLite!')),
+        );
+
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const HomePage()),
+              (route) => false,
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving user: $e')),
+        );
+      }
     }
   }
   //  Builds the visual layout for the Sign In / Register page
@@ -688,92 +731,116 @@ class ProfilePage extends StatelessWidget {
 
 //  ─────────────── BOOKS AVAILABLE PAGE ───────────────
 //  Displays a list of books that match the user's search query
-//  Users can tap a book to view more details on the Book Details Page
+//  Now reads from SQLite instead of mockBooks
 class BooksAvailablePage extends StatelessWidget {
   //  The text entered by the user in the search field on the HomePage
   final String searchQuery;
 
-  //  Constructor requiring the search query as a parameter
   const BooksAvailablePage({Key? key, required this.searchQuery})
       : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    // ─────────────── FILTER BOOKS BASED ON SEARCH QUERY ───────────────
-    // If no search query is entered, show all mock books
-    // Otherwise, only include books that match the title, author, or ISBN
-    final filteredBooks = searchQuery.isEmpty
-        ? mockBooks
-        : mockBooks.where((book) {
-      return book.title.toLowerCase().contains(searchQuery.toLowerCase()) ||
-          book.author.toLowerCase().contains(searchQuery.toLowerCase()) ||
-          book.isbn.contains(searchQuery);
-    }).toList();
-    //  ─────────────── PAGE STRUCTURE ───────────────
     return Scaffold(
       appBar: AppBar(
         title: const Text('Available Books'),
       ),
-      //  The main body of the page
-      //  Shows either a "No books found" message or a scrollable list of books
-      body: filteredBooks.isEmpty
-          ? const Center(child: Text('No books found')) //  No matches found
-          : ListView.builder(
-        padding: const EdgeInsets.all(8.0),
-        itemCount: filteredBooks.length,  // n books to display
-        itemBuilder: (context, index) {
-          final book = filteredBooks[index];
-          //  ─────────────── INDIVIDUAL BOOK CARD ───────────────
-          return Card(
-            margin: const EdgeInsets.symmetric(vertical: 8.0),
-            child: ListTile(
-              //  Small box representing a placeholder book cover
-              leading: Container(
-                width: 50,
-                height: 70,
-                color: Colors.grey[300],
-                child: const Icon(Icons.book),
-              ),
-              //  main title of the book
-              title: Text(
-                book.title,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              //  Subtitle section: author, owner, and book condition
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('by ${book.author}'),
-                  Text('Owner: ${book.ownerName}'),
-                  Text(
-                    'Condition: ${book.condition}',
-                    //  Changes text color based on book condition
-                    style: TextStyle(
-                      color: book.condition == 'Like New'
-                          ? Colors.green
-                          : Colors.orange,
-                    ),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        // ← get all books from SQLite
+        future: AppDatabase.instance.getAllBooks(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('Error loading books: ${snapshot.error}'),
+            );
+          }
+
+          final rows = snapshot.data ?? [];
+
+          // Map rows → Book objects
+          final allBooks = rows.map((row) {
+            return Book(
+              id: row['id'].toString(),
+              isbn: row['isbn'] as String,
+              title: row['title'] as String,
+              author: row['author'] as String,
+              ownerName: 'Uploader #${row['uploader_id']}',
+              condition: row['condition'] as String,
+              notes: row['notes'] as String?,
+              photoUrl: row['photo_url'] as String?,
+            );
+          }).toList();
+
+          // Filter by search query (same logic you had before)
+          final filteredBooks = searchQuery.isEmpty
+              ? allBooks
+              : allBooks.where((book) {
+            final q = searchQuery.toLowerCase();
+            return book.title.toLowerCase().contains(q) ||
+                book.author.toLowerCase().contains(q) ||
+                book.isbn.contains(searchQuery);
+          }).toList();
+
+          if (filteredBooks.isEmpty) {
+            return const Center(child: Text('No books found'));
+          }
+
+          // Same ListView UI as before, just using filteredBooks
+          return ListView.builder(
+            padding: const EdgeInsets.all(8.0),
+            itemCount: filteredBooks.length,
+            itemBuilder: (context, index) {
+              final book = filteredBooks[index];
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 8.0),
+                child: ListTile(
+                  leading: Container(
+                    width: 50,
+                    height: 70,
+                    color: Colors.grey[300],
+                    child: const Icon(Icons.book),
                   ),
-                ],
-              ),
-              //  Right arrow icon for visual cue of navigation
-              trailing: const Icon(Icons.chevron_right),
-              //  When tapped, navigate to Book Details Page
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => BookDetailsPage(book: book),
+                  title: Text(
+                    book.title,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                );
-              },
-            ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('by ${book.author}'),
+                      Text('Owner: ${book.ownerName}'),
+                      Text(
+                        'Condition: ${book.condition}',
+                        style: TextStyle(
+                          color: book.condition == 'Like New'
+                              ? Colors.green
+                              : Colors.orange,
+                        ),
+                      ),
+                    ],
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => BookDetailsPage(book: book),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
           );
         },
       ),
     );
   }
 }
+
 
 //  ─────────────── BOOK DETAILS PAGE ───────────────
 //  This page shows detailed information about a selected book
@@ -1322,30 +1389,25 @@ class _AddBookPageState extends State<AddBookPage> {
     );
   }
   //  ──────────────── SUBMIT NEW BOOK LISTING ────────────────
-  void _submitBook() {
+  void _submitBook() async {
     if (_formKey.currentState!.validate()) {
-      //  Create a new Book object using form inputs
-      final newBook = Book(
-        id: DateTime
-            .now()
-            .millisecondsSinceEpoch
-            .toString(),
+      final uploaderIdFromDb = 1;
+      // TODO: when you add user ids from SQLite, store it on `currentUser` too
+
+      await AppDatabase.instance.insertBook(
         isbn: _isbnController.text,
         title: _titleController.text,
         author: _authorController.text,
-        ownerName: currentUser!.name,
-        photoUrl: _photoUrl,
+        uploaderId: uploaderIdFromDb,
         condition: _condition,
+        photoUrl: _photoUrl,
         notes: _notesController.text.isEmpty ? null : _notesController.text,
       );
-      //  Add the new book to mock data list (temporary storage)
-      mockBooks.add(newBook);
-      //  Confirmation message for user
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(
-            'Listing posted! You earn 100 credits when someone borrows it.')),
+        const SnackBar(content: Text('Listing saved to SQLite!')),
       );
-      //  Return to previous screen after posting
+
       Navigator.pop(context);
     }
   }
