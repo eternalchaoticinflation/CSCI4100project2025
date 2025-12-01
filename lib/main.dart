@@ -1,10 +1,83 @@
 import 'package:flutter/material.dart';
 import 'db/app_database.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:async';
+import 'dart:io' show Platform;
+import 'package:permission_handler/permission_handler.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.instance.init();
   runApp(const BookshareApp());
 }
+
+class NotificationService {
+  NotificationService._internal();
+  static final NotificationService instance = NotificationService._internal();
+
+  final FlutterLocalNotificationsPlugin _plugin =
+  FlutterLocalNotificationsPlugin();
+  bool _initialized = false;
+
+  Future<void> init() async {
+    if (_initialized) return;
+
+    // Android init
+    const AndroidInitializationSettings androidInit =
+    AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const InitializationSettings initSettings =
+    InitializationSettings(android: androidInit);
+
+    await _plugin.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse:
+          (NotificationResponse notificationResponse) {
+        _onSelectNotification(notificationResponse.payload);
+      },
+    );
+
+    if (Platform.isAndroid) {
+      await _requestNotificationPermission();
+    }
+
+    _initialized = true;
+  }
+
+  Future<void> _requestNotificationPermission() async {
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
+  }
+
+  Future<void> _onSelectNotification(String? payload) async {
+    // For now just log / no-op.
+    // You could navigate to a specific page based on payload later.
+    debugPrint('Notification tapped with payload: $payload');
+  }
+
+  Future<void> showSimple({
+    required String title,
+    required String body,
+    String? payload,
+    int id = 0,
+  }) async {
+    const AndroidNotificationDetails androidDetails =
+    AndroidNotificationDetails(
+      'bookshare_channel', // channel id
+      'Bookshare Notifications', // channel name
+      channelDescription: 'Notifications for Campus Bookshare app',
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+
+    const NotificationDetails details =
+    NotificationDetails(android: androidDetails);
+
+    await _plugin.show(id, title, body, details, payload: payload);
+  }
+}
+
 //  Main app widget for the Campus Bookshare App
 //  This sets up the overall look, theme, and the first screen shown when the app starts
 class BookshareApp extends StatelessWidget {
@@ -1109,7 +1182,7 @@ class _MapPickupPageState extends State<MapPickupPage> {
 
   //  ─────────────── CONFIRM PICKUP FUNCTION ───────────────
   //  Validates selection and creates a transaction record for borrowing the book
-  void _confirmPickup() {
+  Future<void> _confirmPickup() async {
     //  Check if user has selected a pickup location
     if (selectedLocation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1136,6 +1209,15 @@ class _MapPickupPageState extends State<MapPickupPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Pickup set! Check your transactions.')),
     );
+
+    // local notification
+    await NotificationService.instance.showSimple(
+      title: 'Borrow Confirmed',
+      body:
+      'Pickup set for "${widget.book.title}" at $selectedLocation. Due on ${transaction.dueDate.toString().split(' ')[0]}.',
+      payload: widget.book.id,
+    );
+
     //  Return to the home page (pop all previous routes)
     Navigator.popUntil(context, (route) => route.isFirst);
   }
@@ -1517,6 +1599,13 @@ class _AddBookPageState extends State<AddBookPage> {
               'Listing posted! You earn 100 credits when someone borrows it.',
             ),
           ),
+        );
+
+        // local notification
+        await NotificationService.instance.showSimple(
+          title: 'Book Listed',
+          body: 'Your book "${_titleController.text}" is now available for other students to borrow.',
+          payload: _isbnController.text,
         );
 
         Navigator.pop(context);
