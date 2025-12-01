@@ -749,7 +749,7 @@ class _SignInPageState extends State<SignInPage> {
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.all(16),
                 ),
-                child: const Text('Create Account', style: TextStyle(fontSize: 18)),
+                child: const Text('Create Account/Sign In', style: TextStyle(fontSize: 18)),
               ),
             ],
           ),
