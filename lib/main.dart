@@ -418,7 +418,7 @@ class _HomePageState extends State<HomePage> {
             MaterialPageRoute(
               builder: (context) => const AddBookPage(),
             ),
-          ).then((_) => _refreshHome()); // <– refresh after popping back
+          ).then((_) => _refreshHome());
         },
         icon: const Icon(Icons.add),
         label: const Text('List Book'),
@@ -654,10 +654,11 @@ class ProfilePage extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () {
-              //  Clear the current user and return to the previous screen
               currentUser = null;
+              mockTransactions.clear(); // clear old user’s transactions
+
               Navigator.pop(context);
-              //  Show a small message at the bottom confirming logout
+
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Logged out')),
               );
@@ -1273,9 +1274,22 @@ class TransactionsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (currentUser == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('My Transactions')),
+        body: const Center(child: Text('Please sign in first')),
+      );
+    }
+
     //  Separate all transactions into two lists based on role
-    final borrowed = mockTransactions.where((t) => t.isBorrower).toList();
-    final lending = mockTransactions.where((t) => !t.isBorrower).toList();
+    //  Ensure no conflicts with current user vs previous
+    final borrowed = mockTransactions
+        .where((t) => t.borrowerName == currentUser!.name)
+        .toList();
+    final lending = mockTransactions
+        .where((t) => t.lenderName == currentUser!.name)
+        .toList();
+
     //  DefaultTabController manages the two-tab interface
     return DefaultTabController(
       length: 2,  //  "Borrowed" and "Lending"
