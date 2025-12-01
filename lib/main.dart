@@ -583,6 +583,18 @@ class _SignInPageState extends State<SignInPage> {
   // Validates user input, creates a new User object, and navigates home.
   // ────────────────────────────────────────────────────────────────────
   void _signIn() async {
+    // quick email-domain check before DB work
+    final email = _emailController.text.trim();
+    if (!email.endsWith('@ontariotechu.net')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You must use your ontariotechu.net student email.'),
+        ),
+      );
+      return; // stop here, don’t continue sign-in
+    }
+
+
     if (_formKey.currentState!.validate()) {
       final db = AppDatabase.instance;
 
