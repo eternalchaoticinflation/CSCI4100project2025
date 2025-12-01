@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'db/app_database.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -150,7 +151,41 @@ class HomePage extends StatefulWidget {
 //  The state class that defines the behavior and content of the HomePage
 class _HomePageState extends State<HomePage> {
   //  Controller to capture the user's text input in the search field
-  final TextEditingController _searchController = TextEditingController();
+  // final TextEditingController _searchController = TextEditingController();
+
+  late Future<List<Book>> _booksFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _reloadBooks();
+  }
+
+  void _reloadBooks() {
+    _booksFuture = _loadBooks();
+  }
+
+  Future<List<Book>> _loadBooks() async {
+    final rows = await AppDatabase.instance.getAllBooks();
+    return rows.map((row) {
+      return Book(
+        id: row['id'].toString(),
+        isbn: row['isbn'] as String,
+        title: row['title'] as String,
+        author: row['author'] as String,
+        ownerName: row['owner_name'] as String,
+        photoUrl: row['photo_url'] as String?,
+        condition: row['condition'] as String,
+        notes: row['notes'] as String?,
+      );
+    }).toList();
+  }
+
+  void _refreshHome() {
+    setState(() {
+      _reloadBooks();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -159,53 +194,56 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('Campus Bookshare'),
         actions: [
-          //  If a user is currently signed in, show a profile icon in the app bar
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const BooksAvailablePage(),
+                ),
+              ).then((_) => _refreshHome());
+            },
+          ),
           if (currentUser != null)
             IconButton(
               icon: const Icon(Icons.person),
               onPressed: () {
-                //  Navigate to the user's profile page
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const ProfilePage()),
-                );
+                ).then((_) => _refreshHome());
               },
             ),
         ],
       ),
+
       //  Main content of the homepage
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ──────────────── WELCOME SECTION ────────────────
+            // Welcome + credits card (unchanged, just moved)
             Card(
-              elevation: 2,   // Adds slight shadow around the card
+              elevation: 2,
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
-                    // Book icon to visually represent the app
                     const Icon(Icons.book, size: 64, color: Colors.blue),
                     const SizedBox(height: 16),
-
-                    // Welcome heading text
                     Text(
                       'Welcome to Campus Bookshare',
                       style: Theme.of(context).textTheme.headlineSmall,
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
-
-                    // Short description of the app's purpose
                     const Text(
                       'Borrow and lend textbooks with fellow students',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey),
                     ),
-
-                    // If user is signed in, display their available credits
                     if (currentUser != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 16.0),
@@ -222,51 +260,16 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
-            const SizedBox(height: 24),
-
-            // ──────────────── SEARCH BAR ────────────────
-            TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search books by title, author, or ISBN...',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                filled: true,
-                fillColor: Colors.white,
-              ),
-            ),
             const SizedBox(height: 16),
 
-            // ──────────────── SEARCH BUTTON ────────────────
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => BooksAvailablePage(
-                      searchQuery: _searchController.text,
-                    ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.search),
-              label: const Text('Search Books'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.all(16),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // ──────────────── SIGN IN / PROFILE NAVIGATION ────────────────
+            // Sign-in / My Transactions button
             if (currentUser == null)
               OutlinedButton.icon(
                 onPressed: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const SignInPage()),
-                  );
+                  ).then((_) => _refreshHome());
                 },
                 icon: const Icon(Icons.login),
                 label: const Text('Sign In'),
@@ -275,7 +278,6 @@ class _HomePageState extends State<HomePage> {
                 ),
               )
             else
-            // If a user is logged in, show a button to access their transactions
               OutlinedButton.icon(
                 onPressed: () {
                   Navigator.push(
@@ -283,7 +285,7 @@ class _HomePageState extends State<HomePage> {
                     MaterialPageRoute(
                       builder: (context) => const TransactionsPage(),
                     ),
-                  );
+                  ).then((_) => _refreshHome());
                 },
                 icon: const Icon(Icons.list_alt),
                 label: const Text('My Transactions'),
@@ -292,9 +294,75 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
 
-            const Spacer(),
+            const SizedBox(height: 16),
 
-            // ──────────────── QUICK STATS SECTION ────────────────
+            // ───── BOOK LIST FROM DB ─────
+            Expanded(
+              child: FutureBuilder<List<Book>>(
+                future: _booksFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error loading books: ${snapshot.error}'));
+                  }
+                  final books = snapshot.data ?? [];
+                  if (books.isEmpty) {
+                    return const Center(child: Text('No books available yet'));
+                  }
+                  return ListView.builder(
+                    itemCount: books.length,
+                    itemBuilder: (context, index) {
+                      final book = books[index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: ListTile(
+                          leading: Container(
+                            width: 50,
+                            height: 70,
+                            color: Colors.grey[300],
+                            child: const Icon(Icons.book),
+                          ),
+                          title: Text(
+                            book.title,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('by ${book.author}'),
+                              Text('Owner: ${book.ownerName}'),
+                              Text(
+                                'Condition: ${book.condition}',
+                                style: TextStyle(
+                                  color: book.condition == 'Like New'
+                                      ? Colors.green
+                                      : Colors.orange,
+                                ),
+                              ),
+                            ],
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => BookDetailsPage(book: book),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Quick stats
             if (currentUser != null)
               Card(
                 child: Padding(
@@ -302,13 +370,11 @@ class _HomePageState extends State<HomePage> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      //  Column showing number of books currently being lent
                       Column(
                         children: [
                           const Icon(Icons.upload, color: Colors.green),
                           const SizedBox(height: 4),
                           Text(
-                            //  Count transactions where current user is the lender
                             '${mockTransactions.where((t) => !t.isBorrower).length}',
                             style: const TextStyle(
                               fontSize: 20,
@@ -318,8 +384,6 @@ class _HomePageState extends State<HomePage> {
                           const Text('Lending'),
                         ],
                       ),
-
-                      //  Column showing number of books currently borrowed
                       Column(
                         children: [
                           const Icon(Icons.download, color: Colors.orange),
@@ -338,9 +402,12 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
+
+            const SizedBox(height: 80), // Give room so FAB doesn’t cover stats
           ],
         ),
       ),
+
       //  ──────────────── FLOATING ACTION BUTTON ────────────────
       //  Only visible when the user is signed in
       floatingActionButton: currentUser != null
@@ -351,7 +418,7 @@ class _HomePageState extends State<HomePage> {
             MaterialPageRoute(
               builder: (context) => const AddBookPage(),
             ),
-          );
+          ).then((_) => _refreshHome()); // <– refresh after popping back
         },
         icon: const Icon(Icons.add),
         label: const Text('List Book'),
@@ -398,28 +465,48 @@ class _SignInPageState extends State<SignInPage> {
   // Handles the form submission and sign-in logic.
   // Validates user input, creates a new User object, and navigates home.
   // ────────────────────────────────────────────────────────────────────
-  void _signIn() {
-    //  Check if the form fields pass all validation rules
+  void _signIn() async {
     if (_formKey.currentState!.validate()) {
-      //  Create a new user using data from the form fields
-      currentUser = User(
-        name: _nameController.text,
-        email: _emailController.text,
-        photoUrl: _photoUrl,
-        bio: _bioController.text.isEmpty ? null : _bioController.text,
-      );
-      //  Display success feedback to the user
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Account created successfully!')),
-      );
+      final db = AppDatabase.instance;
 
-      //  Navigate back and refresh home page
-      //  ensures the user cannot go "back" to the sign-in screen
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const HomePage()),
-            (route) => false,
-      );
+      const dummyPassword = 'test123';
+
+      try {
+        // Try to find an existing user with this email/password
+        final existingUser = await db.getUserByEmailAndPassword(
+          _emailController.text,
+          dummyPassword,
+        );
+
+        if (existingUser != null) {
+          // Already registered: use that record
+          currentUser = existingUser;
+        } else {
+          // Not in DB yet: create a new one
+          final newUser = User(
+            name: _nameController.text,
+            email: _emailController.text,
+            photoUrl: _photoUrl,
+            bio: _bioController.text.isEmpty ? null : _bioController.text,
+          );
+
+          currentUser = await db.insertUser(newUser, dummyPassword);
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Signed in successfully!')),
+        );
+
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const HomePage()),
+              (route) => false,
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Sign-in error: $e')),
+        );
+      }
     }
   }
   //  Builds the visual layout for the Sign In / Register page
@@ -689,91 +776,150 @@ class ProfilePage extends StatelessWidget {
 //  ─────────────── BOOKS AVAILABLE PAGE ───────────────
 //  Displays a list of books that match the user's search query
 //  Users can tap a book to view more details on the Book Details Page
-class BooksAvailablePage extends StatelessWidget {
-  //  The text entered by the user in the search field on the HomePage
-  final String searchQuery;
+class BooksAvailablePage extends StatefulWidget {
+  const BooksAvailablePage({Key? key}) : super(key: key);
 
-  //  Constructor requiring the search query as a parameter
-  const BooksAvailablePage({Key? key, required this.searchQuery})
-      : super(key: key);
+  @override
+  State<BooksAvailablePage> createState() => _BooksAvailablePageState();
+}
+
+class _BooksAvailablePageState extends State<BooksAvailablePage> {
+  final TextEditingController _searchController = TextEditingController();
+  late Future<List<Book>> _booksFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _booksFuture = _loadBooks(''); // start with all books
+  }
+
+  Future<List<Book>> _loadBooks(String query) async {
+    final rows = await AppDatabase.instance.searchBooks(query);
+    return rows.map((row) {
+      return Book(
+        id: row['id'].toString(),
+        isbn: row['isbn'] as String,
+        title: row['title'] as String,
+        author: row['author'] as String,
+        ownerName: row['owner_name'] as String,
+        photoUrl: row['photo_url'] as String?,
+        condition: row['condition'] as String,
+        notes: row['notes'] as String?,
+      );
+    }).toList();
+  }
+
+  void _onSearch() {
+    setState(() {
+      _booksFuture = _loadBooks(_searchController.text);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    // ─────────────── FILTER BOOKS BASED ON SEARCH QUERY ───────────────
-    // If no search query is entered, show all mock books
-    // Otherwise, only include books that match the title, author, or ISBN
-    final filteredBooks = searchQuery.isEmpty
-        ? mockBooks
-        : mockBooks.where((book) {
-      return book.title.toLowerCase().contains(searchQuery.toLowerCase()) ||
-          book.author.toLowerCase().contains(searchQuery.toLowerCase()) ||
-          book.isbn.contains(searchQuery);
-    }).toList();
-    //  ─────────────── PAGE STRUCTURE ───────────────
     return Scaffold(
       appBar: AppBar(
         title: const Text('Available Books'),
       ),
-      //  The main body of the page
-      //  Shows either a "No books found" message or a scrollable list of books
-      body: filteredBooks.isEmpty
-          ? const Center(child: Text('No books found')) //  No matches found
-          : ListView.builder(
-        padding: const EdgeInsets.all(8.0),
-        itemCount: filteredBooks.length,  // n books to display
-        itemBuilder: (context, index) {
-          final book = filteredBooks[index];
-          //  ─────────────── INDIVIDUAL BOOK CARD ───────────────
-          return Card(
-            margin: const EdgeInsets.symmetric(vertical: 8.0),
-            child: ListTile(
-              //  Small box representing a placeholder book cover
-              leading: Container(
-                width: 50,
-                height: 70,
-                color: Colors.grey[300],
-                child: const Icon(Icons.book),
+      body: Column(
+        children: [
+          // Search bar
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search by title, author, or ISBN...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: Colors.white,
               ),
-              //  main title of the book
-              title: Text(
-                book.title,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              //  Subtitle section: author, owner, and book condition
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('by ${book.author}'),
-                  Text('Owner: ${book.ownerName}'),
-                  Text(
-                    'Condition: ${book.condition}',
-                    //  Changes text color based on book condition
-                    style: TextStyle(
-                      color: book.condition == 'Like New'
-                          ? Colors.green
-                          : Colors.orange,
-                    ),
-                  ),
-                ],
-              ),
-              //  Right arrow icon for visual cue of navigation
-              trailing: const Icon(Icons.chevron_right),
-              //  When tapped, navigate to Book Details Page
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => BookDetailsPage(book: book),
-                  ),
+              onSubmitted: (_) => _onSearch(),
+            ),
+          ),
+          ElevatedButton.icon(
+            onPressed: _onSearch,
+            icon: const Icon(Icons.search),
+            label: const Text('Search'),
+          ),
+          const SizedBox(height: 8),
+
+          // Results
+          Expanded(
+            child: FutureBuilder<List<Book>>(
+              future: _booksFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('Error loading books: ${snapshot.error}'),
+                  );
+                }
+                final books = snapshot.data ?? [];
+                if (books.isEmpty) {
+                  return const Center(child: Text('No books found'));
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(8.0),
+                  itemCount: books.length,
+                  itemBuilder: (context, index) {
+                    final book = books[index];
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: ListTile(
+                        leading: Container(
+                          width: 50,
+                          height: 70,
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.book),
+                        ),
+                        title: Text(
+                          book.title,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('by ${book.author}'),
+                            Text('Owner: ${book.ownerName}'),
+                            Text(
+                              'Condition: ${book.condition}',
+                              style: TextStyle(
+                                color: book.condition == 'Like New'
+                                    ? Colors.green
+                                    : Colors.orange,
+                              ),
+                            ),
+                          ],
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => BookDetailsPage(book: book),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
                 );
               },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
 }
+
 
 //  ─────────────── BOOK DETAILS PAGE ───────────────
 //  This page shows detailed information about a selected book
@@ -1322,33 +1468,43 @@ class _AddBookPageState extends State<AddBookPage> {
     );
   }
   //  ──────────────── SUBMIT NEW BOOK LISTING ────────────────
-  void _submitBook() {
+  void _submitBook() async {
     if (_formKey.currentState!.validate()) {
-      //  Create a new Book object using form inputs
-      final newBook = Book(
-        id: DateTime
-            .now()
-            .millisecondsSinceEpoch
-            .toString(),
-        isbn: _isbnController.text,
-        title: _titleController.text,
-        author: _authorController.text,
-        ownerName: currentUser!.name,
-        photoUrl: _photoUrl,
-        condition: _condition,
-        notes: _notesController.text.isEmpty ? null : _notesController.text,
-      );
-      //  Add the new book to mock data list (temporary storage)
-      mockBooks.add(newBook);
-      //  Confirmation message for user
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(
-            'Listing posted! You earn 100 credits when someone borrows it.')),
-      );
-      //  Return to previous screen after posting
-      Navigator.pop(context);
+      if (currentUser == null || currentUser!.id == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please sign in before listing a book.')),
+        );
+        return;
+      }
+
+      try {
+        await AppDatabase.instance.insertBook(
+          isbn: _isbnController.text,
+          title: _titleController.text,
+          author: _authorController.text,
+          uploaderId: currentUser!.id!,      // <– link to DB user
+          condition: _condition,
+          photoUrl: _photoUrl,
+          notes: _notesController.text.isEmpty ? null : _notesController.text,
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Listing posted! You earn 100 credits when someone borrows it.',
+            ),
+          ),
+        );
+
+        Navigator.pop(context);
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving book: $e')),
+        );
+      }
     }
   }
+
   //  ──────────────── PAGE UI ────────────────
   @override
   Widget build(BuildContext context) {
