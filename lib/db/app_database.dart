@@ -32,37 +32,97 @@ class AppDatabase {
   Future<void> _onCreate(Database db, int version) async {
     // USERS TABLE
     await db.execute('''
-      CREATE TABLE users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL UNIQUE,
-        password TEXT NOT NULL,
-        photo_url TEXT,
-        credits INTEGER NOT NULL DEFAULT 1000,
-        bio TEXT
-      );
-    ''');
+    CREATE TABLE users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      photo_url TEXT,
+      credits INTEGER NOT NULL DEFAULT 1000,
+      bio TEXT
+    );
+  ''');
 
     // BOOKS TABLE
     await db.execute('''
-      CREATE TABLE books (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        isbn TEXT NOT NULL,
-        title TEXT NOT NULL,
-        author TEXT NOT NULL,
-        uploader_id INTEGER NOT NULL,
-        borrower_id INTEGER,
-        borrow_status TEXT NOT NULL DEFAULT 'available', -- available | borrowed
-        signed_out_date TEXT,
-        due_date TEXT,
-        condition TEXT NOT NULL,
-        photo_url TEXT,
-        notes TEXT,
-        FOREIGN KEY (uploader_id) REFERENCES users (id),
-        FOREIGN KEY (borrower_id) REFERENCES users (id)
-      );
-    ''');
+    CREATE TABLE books (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      isbn TEXT NOT NULL,
+      title TEXT NOT NULL,
+      author TEXT NOT NULL,
+      uploader_id INTEGER NOT NULL,
+      borrower_id INTEGER,
+      borrow_status TEXT NOT NULL DEFAULT 'available', -- available | borrowed
+      signed_out_date TEXT,
+      due_date TEXT,
+      condition TEXT NOT NULL,
+      photo_url TEXT,
+      notes TEXT,
+      FOREIGN KEY (uploader_id) REFERENCES users (id),
+      FOREIGN KEY (borrower_id) REFERENCES users (id)
+    );
+  ''');
+
+    // ───── SEED DEMO USERS ─────
+    final johnId = await db.insert('users', {
+      'name': 'John Smith',
+      'email': 'john.smith@example.com',
+      'password': 'demo',
+      'photo_url': null,
+      'credits': 1000,
+      'bio': 'CS student and textbook hoarder',
+    });
+
+    final sarahId = await db.insert('users', {
+      'name': 'Sarah Lee',
+      'email': 'sarah.lee@example.com',
+      'password': 'demo',
+      'photo_url': null,
+      'credits': 1000,
+      'bio': 'Loves clean code',
+    });
+
+    final mikeId = await db.insert('users', {
+      'name': 'Mike Johnson',
+      'email': 'mike.johnson@example.com',
+      'password': 'demo',
+      'photo_url': null,
+      'credits': 1000,
+      'bio': 'Algorithms fan',
+    });
+
+    // ───── SEED DEMO BOOKS (original mockBooks) ─────
+    await db.insert('books', {
+      'isbn': '9780134685991',
+      'title': 'Effective Java',
+      'author': 'Joshua Bloch',
+      'uploader_id': johnId,
+      'condition': 'Good',
+      'photo_url': null,
+      'notes': 'Slight wear on cover',
+    });
+
+    await db.insert('books', {
+      'isbn': '9780132350884',
+      'title': 'Clean Code',
+      'author': 'Robert Martin',
+      'uploader_id': sarahId,
+      'condition': 'Like New',
+      'photo_url': null,
+      'notes': 'No marks or highlights',
+    });
+
+    await db.insert('books', {
+      'isbn': '9780262033848',
+      'title': 'Introduction to Algorithms',
+      'author': 'Cormen, Leiserson, Rivest',
+      'uploader_id': mikeId,
+      'condition': 'Fair',
+      'photo_url': null,
+      'notes': 'Some highlighting',
+    });
   }
+
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     // destructive upgrade, but simple
@@ -143,8 +203,31 @@ class AppDatabase {
 
   Future<List<Map<String, dynamic>>> getAllBooks() async {
     final db = await database;
-    return db.query('books', orderBy: 'id DESC');
+    return db.rawQuery('''
+    SELECT books.*, users.name AS owner_name
+    FROM books
+    JOIN users ON books.uploader_id = users.id
+    ORDER BY books.id DESC
+  ''');
   }
+
+  Future<List<Map<String, dynamic>>> searchBooks(String query) async {
+    final db = await database;
+
+    if (query.isEmpty) {
+      return getAllBooks();
+    }
+
+    final pattern = '%$query%';
+    return db.rawQuery('''
+    SELECT books.*, users.name AS owner_name
+    FROM books
+    JOIN users ON books.uploader_id = users.id
+    WHERE books.title LIKE ? OR books.author LIKE ? OR books.isbn LIKE ?
+    ORDER BY books.id DESC
+  ''', [pattern, pattern, pattern]);
+  }
+
 
   Future<void> markBookBorrowed({
     required int bookId,

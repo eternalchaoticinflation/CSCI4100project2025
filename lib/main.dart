@@ -1,9 +1,7 @@
-// lab01 — AI-generated example (ChatGPT)
-// Requirements: show a counter, increment with a button, display a snackbar.
-
 import 'package:flutter/material.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const BookshareApp());
 }
 //  Main app widget for the Campus Bookshare App
