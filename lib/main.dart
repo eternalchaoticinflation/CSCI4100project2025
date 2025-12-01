@@ -36,6 +36,7 @@ class BookshareApp extends StatelessWidget {
 
 // Mock Data Classes
 class User {
+  int? id;
   String name;                    //  Full name of the user
   String email;                   //  Email address (used for login or identification)
   String? photoUrl;               //  Optional profile photo
@@ -45,6 +46,7 @@ class User {
   //  Constructor that initializes user properties.
   //  'credits' defaults to 1000 if not provided
   User({
+    this.id,
     required this.name,
     required this.email,
     this.photoUrl,

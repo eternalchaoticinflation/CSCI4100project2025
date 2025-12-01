@@ -23,8 +23,9 @@ class AppDatabase {
 
     return openDatabase(
       dbPath,
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -63,11 +64,18 @@ class AppDatabase {
     ''');
   }
 
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    // destructive upgrade, but simple
+    await db.execute('DROP TABLE IF EXISTS books;');
+    await db.execute('DROP TABLE IF EXISTS users;');
+    await _onCreate(db, newVersion);
+  }
+
   // ───── USER QUERIES ─────
 
-  Future<int> insertUser(User user, String password) async {
+  Future<User> insertUser(User user, String password) async {
     final db = await database;
-    return db.insert(
+    final id = await db.insert(
       'users',
       {
         'name': user.name,
@@ -78,6 +86,14 @@ class AppDatabase {
         'bio': user.bio,
       },
       conflictAlgorithm: ConflictAlgorithm.abort,
+    );
+    return User(
+      id: id,
+      name: user.name,
+      email: user.email,
+      photoUrl: user.photoUrl,
+      credits: user.credits,
+      bio: user.bio,
     );
   }
 
@@ -92,6 +108,7 @@ class AppDatabase {
     if (rows.isEmpty) return null;
     final row = rows.first;
     return User(
+      id: row['id'] as int,
       name: row['name'] as String,
       email: row['email'] as String,
       photoUrl: row['photo_url'] as String?,
