@@ -4,6 +4,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:permission_handler/permission_handler.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -75,6 +77,48 @@ class NotificationService {
     NotificationDetails(android: androidDetails);
 
     await _plugin.show(id, title, body, details, payload: payload);
+  }
+}
+
+class WeatherInfo {
+  final double temperature; // °C
+  final DateTime time;
+
+  WeatherInfo({
+    required this.temperature,
+    required this.time,
+  });
+}
+
+class WeatherService {
+  // Ontario Tech-ish campus coordinates
+  static const double _campusLat = 43.945;
+  static const double _campusLng = -78.896;
+
+  // Fetch current weather for campus using Open-Meteo over HTTPS.
+  static Future<WeatherInfo> fetchCampusWeather() async {
+    final uri = Uri.parse(
+      'https://api.open-meteo.com/v1/forecast'
+          '?latitude=$_campusLat'
+          '&longitude=$_campusLng'
+          '&current_weather=true',
+    );
+
+    final response = await http.get(uri);
+
+    if (response.statusCode != 200) {
+      throw Exception('Weather request failed: HTTP ${response.statusCode}');
+    }
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final current = data['current_weather'] as Map<String, dynamic>;
+    final temp = (current['temperature'] as num).toDouble();
+    final timeString = current['time'] as String;
+
+    return WeatherInfo(
+      temperature: temp,
+      time: DateTime.parse(timeString),
+    );
   }
 }
 
@@ -1180,6 +1224,12 @@ class _MapPickupPageState extends State<MapPickupPage> {
   //  Stores the name of the selected pickup location
   String? selectedLocation;
 
+  // Weather-related state
+  WeatherInfo? _weather;
+  bool _isLoadingWeather = false;
+  String? _weatherError;
+
+
   //  ─────────────── CONFIRM PICKUP FUNCTION ───────────────
   //  Validates selection and creates a transaction record for borrowing the book
   Future<void> _confirmPickup() async {
@@ -1221,6 +1271,35 @@ class _MapPickupPageState extends State<MapPickupPage> {
     //  Return to the home page (pop all previous routes)
     Navigator.popUntil(context, (route) => route.isFirst);
   }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWeather();
+  }
+
+  Future<void> _loadWeather() async {
+    setState(() {
+      _isLoadingWeather = true;
+      _weatherError = null;
+    });
+
+    try {
+      final info = await WeatherService.fetchCampusWeather();
+      setState(() {
+        _weather = info;
+      });
+    } catch (e) {
+      setState(() {
+        _weatherError = 'Could not load weather';
+      });
+    } finally {
+      setState(() {
+        _isLoadingWeather = false;
+      });
+    }
+  }
+
   //  ─────────────── MAIN UI ───────────────
   @override
   Widget build(BuildContext context) {
@@ -1314,21 +1393,34 @@ class _MapPickupPageState extends State<MapPickupPage> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                //  ─────────────── MOCK WEATHER CARD ───────────────
-                //  Placeholder for weather integration
+                //  ─────────────── LIVE WEATHER CARD ───────────────
+                // weather integration
                 Card(
                   color: Colors.amber[50],
-                  child: const Padding(
-                    padding: EdgeInsets.all(12.0),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
                     child: Row(
                       children: [
-                        Icon(Icons.wb_sunny, color: Colors.orange),
-                        SizedBox(width: 8),
-                        Text('Weather: Sunny, 22°C (Weather API)'),
+                        const Icon(Icons.wb_sunny, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _isLoadingWeather
+                              ? const Text('Loading weather...')
+                              : (_weatherError != null)
+                              ? Text(
+                            _weatherError!,
+                            style: const TextStyle(color: Colors.red),
+                          )
+                              : Text(
+                            'Weather: ${_weather!.temperature.toStringAsFixed(1)}°C near campus',
+                            style: const TextStyle(color: Colors.black87),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 16),
                 //  ─────────────── CONFIRM BUTTON ───────────────
                 //  When pressed, validates and creates the transaction
