@@ -1229,6 +1229,21 @@ class _MapPickupPageState extends State<MapPickupPage> {
   bool _isLoadingWeather = false;
   String? _weatherError;
 
+  // NEW: pick which image to show
+  String _imageForLocation() {
+    switch (selectedLocation) {
+      case 'Library':
+        return 'assets/images/library.jpg';
+      case 'Student Center':
+        return 'assets/images/student_center.jpg';
+      case 'Cafeteria':
+        return 'assets/images/cafeteria.jpg';
+      default:
+      // default campus overview / placeholder
+        return 'assets/images/campus_overview.jpg';
+    }
+  }
+
 
   //  ─────────────── CONFIRM PICKUP FUNCTION ───────────────
   //  Validates selection and creates a transaction record for borrowing the book
@@ -1307,43 +1322,22 @@ class _MapPickupPageState extends State<MapPickupPage> {
       appBar: AppBar(title: const Text('Set Pickup Location')),
       body: Column(
         children: [
-          // Mock Map Area
+          // Static campus image area
           Expanded(
             child: Container(
               color: Colors.grey[300],
-              child: Stack(
-                children: [
-                  const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.map, size: 100, color: Colors.grey),
-                        SizedBox(height: 16),
-                        Text(
-                          'Map Integration (Google Maps API)',
-                          style: TextStyle(fontSize: 18, color: Colors.grey),
-                        ),
-                        Text(
-                          'Tap to select pickup location',
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      ],
+              padding: const EdgeInsets.all(16),
+              child: Center(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: AspectRatio(
+                    aspectRatio: 3 / 4, // tweak if your image is wider/narrower
+                    child: Image.asset(
+                      _imageForLocation(),
+                      fit: BoxFit.cover,
                     ),
                   ),
-                  if (selectedLocation != null)
-                    const Positioned(
-                      top: 100,
-                      left: 0,
-                      right: 0,
-                      child: Center(
-                        child: Icon(
-                          Icons.location_on,
-                          size: 50,
-                          color: Colors.red,
-                        ),
-                      ),
-                    ),
-                ],
+                ),
               ),
             ),
           ),
