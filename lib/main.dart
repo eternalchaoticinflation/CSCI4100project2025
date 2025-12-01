@@ -951,6 +951,15 @@ class BookDetailsPage extends StatelessWidget {
       );
       return;
     }
+    // prevent borrowing your own books
+    if (currentUser!.name == book.ownerName) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("You can't borrow your own book."),
+        ),
+      );
+      return;
+    }
     //  If the user doesn't have enough credits, show a warning message
     if (currentUser!.credits < 50) {
       ScaffoldMessenger.of(context).showSnackBar(
